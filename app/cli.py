@@ -1,6 +1,6 @@
 import typer
 from app.database import create_db_and_tables, get_session, drop_all
-from app.models import User, Todo
+from app.models import User, Todo, Category, TodoCategory
 from fastapi import Depends
 from sqlmodel import select
 from sqlalchemy.exc import IntegrityError
@@ -136,6 +136,127 @@ def toggle_todo(todo_id:int, username:str):
         db.commit()
 
         print(f"Todo item's done state set to {todo.done}")
+
+@cli.command()
+def list_todo_categories(todo_id: int, username: str):
+    with get_session() as db:
+        # First verify the user exists
+        user = db.exec(select(User).where(User.username == username)).one_or_none()
+        if not user:
+            print(f"User '{username}' not found!")
+            return
+        
+        # Find the todo and verify it belongs to the user
+        todo = db.exec(
+            select(Todo).where(
+                Todo.id == todo_id,
+                Todo.user_id == user.id
+            )
+        ).one_or_none()
+        
+        if not todo:
+            print(f"Todo with id {todo_id} doesn't exist for user '{username}'")
+            return
+        
+        # Get all categories linked to this todo through TodoCategory
+        todo_categories = db.exec(
+            select(TodoCategory).where(TodoCategory.todo_id == todo_id)
+        ).all()
+        
+        if not todo_categories:
+            print(f"No categories found for todo '{todo.text}' (id: {todo_id})")
+            return
+        
+        print(f"Categories for todo '{todo.text}':")
+        for tc in todo_categories:
+            category = tc.category
+            
+            print(f"  - {category.text}")
+
+@cli.command()
+def create_category(username:str, cat_text:str):
+    with get_session() as db: # Get a connection to the database
+        user = db.exec(select(User).where(User.username == username)).one_or_none()
+        if not user:
+            print("User doesn't exist")
+            return
+
+        category = db.exec(select(Category).where(Category.text== cat_text, Category.user_id == user.id)).one_or_none()
+        if category:
+            print("Category exists! Skipping creation")
+            return
+        
+        category = Category(text=cat_text, user_id=user.id)
+        db.add(category)
+        db.commit()
+
+        print("Category added for user")
+
+@cli.command()
+def list_user_categories(username:str):
+    with get_session() as db: # Get a connection to the database
+        user = db.exec(select(User).where(User.username == username)).one_or_none()
+        if not user:
+            print("User doesn't exist")
+            return
+        categories = db.exec(select(Category).where(Category.user_id == user.id)).all()
+        print([category.text for category in categories])
+
+@cli.command()
+def assign_category_to_todo(username: str, todo_id: int, category_text: str):
+    with get_session() as db:
+        user = db.exec(select(User).where(User.username == username)).one_or_none()
+        if not user:
+            print("User doesn't exist")
+            return
+        
+        # Find or create the category
+        category = db.exec(
+            select(Category).where(
+                Category.text == category_text, 
+                Category.user_id == user.id
+            )
+        ).one_or_none()
+        
+        if not category:
+            category = Category(text=category_text, user_id=user.id)
+            db.add(category)
+            db.commit()
+            db.refresh(category)
+            print(f"Category '{category_text}' created for user")
+        
+        # Find the todo
+        todo = db.exec(
+            select(Todo).where(
+                Todo.id == todo_id, 
+                Todo.user_id == user.id
+            )
+        ).one_or_none()
+        
+        if not todo:
+            print("Todo doesn't exist for user")
+            return
+        
+        # Check if the link already exists
+        existing_link = db.exec(
+            select(TodoCategory).where(
+                TodoCategory.todo_id == todo_id,
+                TodoCategory.category_id == category.id
+            )
+        ).one_or_none()
+        
+        if existing_link:
+            print(f"Todo already has category '{category_text}'")
+            return
+        
+        # Create the link through TodoCategory
+        todo_category = TodoCategory(
+            todo_id=todo.id,
+            category_id=category.id
+        )
+        db.add(todo_category)
+        db.commit()
+        print(f"Added category '{category_text}' to todo")
         
 @cli.command()
 def delete_user(username: str):
