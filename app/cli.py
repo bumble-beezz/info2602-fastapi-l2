@@ -1,6 +1,6 @@
 import typer
 from app.database import create_db_and_tables, get_session, drop_all
-from app.models import User
+from app.models import User, Todo
 from fastapi import Depends
 from sqlmodel import select
 from sqlalchemy.exc import IntegrityError
@@ -108,7 +108,35 @@ def create_user(username: str, email:str, password: str):
         else:
             print(newuser) # print the newly created user
 
+@cli.command()
+def add_task(username:str, task:str):
+    with get_session() as db:
+        user = db.exec(select(User).where(User.username == username)).one_or_none()
+        if not user:
+            print("User doesn't exist")
+            return
+        user.todos.append(Todo(text=task))
+        db.add(user)
+        db.commit()
+        print("Task added for user")
 
+@cli.command()
+def toggle_todo(todo_id:int, username:str):
+    with get_session() as db:
+        todo = db.exec(select(Todo).where(Todo.id == todo_id)).one_or_none()
+        if not todo:
+            print("This todo doesn't exist")
+            return
+        if todo.user.username != username:
+            print(f"This todo doesn't belong to {username}")
+            return
+
+        todo.toggle()
+        db.add(todo)
+        db.commit()
+
+        print(f"Todo item's done state set to {todo.done}")
+        
 @cli.command()
 def delete_user(username: str):
     """delete a user by their username"""
