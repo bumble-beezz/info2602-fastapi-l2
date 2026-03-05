@@ -257,7 +257,146 @@ def assign_category_to_todo(username: str, todo_id: int, category_text: str):
         db.add(todo_category)
         db.commit()
         print(f"Added category '{category_text}' to todo")
+@cli.command(name="list-all-todos")
+def list_all_todos():
+    """Output each todo's ID, text, username and done status"""
+    with get_session() as db:
+        # Join Todo with User to get username
+        todos = db.exec(
+            select(Todo, User.username).join(User).order_by(Todo.id)
+        ).all()
         
+        if not todos:
+            print("No todos found")
+            return
+        
+        print("All Todos:")
+        print("-" * 60)
+        for todo, username in todos:
+            status = "✓" if todo.done else "○"
+            print(f"ID: {todo.id} | {status} | User: {username} | Text: {todo.text}")
+        print("-" * 60)
+        print(f"Total: {len(todos)} todo(s)")
+
+
+@cli.command(name="delete-todo")
+def delete_todo(todo_id: int, username: str = None):
+    """Delete a todo by ID. Optionally verify it belongs to a specific user."""
+    with get_session() as db:
+        # Find the todo
+        query = select(Todo).where(Todo.id == todo_id)
+        
+        # If username provided, verify ownership
+        if username:
+            user = db.exec(select(User).where(User.username == username)).first()
+            if not user:
+                print(f"User '{username}' not found!")
+                return
+            query = query.where(Todo.user_id == user.id)
+        
+        todo = db.exec(query).first()
+        
+        if not todo:
+            if username:
+                print(f"Todo with ID {todo_id} not found for user '{username}'")
+            else:
+                print(f"Todo with ID {todo_id} not found")
+            return
+        
+        # Store info for confirmation message
+        todo_text = todo.text
+        todo_user = todo.user.username
+        
+        # FIRST: Delete all related TodoCategory records
+        related_categories = db.exec(
+            select(TodoCategory).where(TodoCategory.todo_id == todo_id)
+        ).all()
+        
+        for tc in related_categories:
+            db.delete(tc)
+        
+        # THEN: Delete the todo
+        db.delete(todo)
+        db.commit()
+        
+        category_count = len(related_categories)
+        if category_count > 0:
+            print(f"Deleted {category_count} category link(s) and ", end="")
+        print(f"Deleted todo ID {todo_id}: '{todo_text}' (user: {todo_user})")
+
+
+@cli.command(name="complete-all-todos")
+def complete_all_todos(username: str):
+    """Mark all of a user's todos as complete"""
+    with get_session() as db:
+        # Find the user
+        user = db.exec(select(User).where(User.username == username)).first()
+        if not user:
+            print(f"User '{username}' not found!")
+            return
+        
+        # Get all incomplete todos for the user
+        incomplete_todos = db.exec(
+            select(Todo).where(
+                Todo.user_id == user.id,
+                Todo.done == False
+            )
+        ).all()
+        
+        if not incomplete_todos:
+            print(f"User '{username}' has no incomplete todos")
+            return
+        
+        # Mark each todo as complete
+        count = 0
+        for todo in incomplete_todos:
+            todo.done = True
+            db.add(todo)
+            count += 1
+        
+        db.commit()
+        
+        print(f"Marked {count} todo(s) as complete for user '{username}':")
+        for todo in incomplete_todos:
+            print(f"  ✓ {todo.text}")
+
+
+@cli.command(name="list-user-todos")
+def list_user_todos(username: str, show_all: bool = False):
+    """List all todos for a specific user. Use --show-all to include completed todos."""
+    with get_session() as db:
+        # Find the user
+        user = db.exec(select(User).where(User.username == username)).first()
+        if not user:
+            print(f"User '{username}' not found!")
+            return
+        
+        # Build query
+        query = select(Todo).where(Todo.user_id == user.id)
+        if not show_all:
+            query = query.where(Todo.done == False)
+        
+        todos = db.exec(query.order_by(Todo.id)).all()
+        
+        if not todos:
+            if show_all:
+                print(f"No todos found for user '{username}'")
+            else:
+                print(f"No incomplete todos found for user '{username}'")
+            return
+        
+        # Count statistics
+        total = db.exec(select(Todo).where(Todo.user_id == user.id)).all()
+        completed = len([t for t in total if t.done])
+        
+        print(f"\nTodos for user '{username}':")
+        print(f"Total: {len(total)} | Completed: {completed} | Pending: {len(total) - completed}")
+        print("-" * 50)
+        
+        for todo in todos:
+            status = "✓" if todo.done else "○"
+            print(f"ID: {todo.id} | {status} | {todo.text}")
+
 @cli.command()
 def delete_user(username: str):
     """delete a user by their username"""
