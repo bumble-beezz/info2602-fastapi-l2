@@ -4,7 +4,6 @@ from typing import Annotated
 from fastapi import Depends
 from . import models
 
-
 sqlite_file_name = "database.db"
 sqlite_url = f"sqlite:///{sqlite_file_name}"
 
@@ -17,10 +16,16 @@ def create_db_and_tables():
 def drop_all():
     SQLModel.metadata.drop_all(bind=engine)
 
-@contextmanager
-def get_session():
+def _session_generator():
     with Session(engine) as session:
         yield session
+
+def get_session():
+    yield from _session_generator()
+
+@contextmanager
+def get_cli_session():
+    yield from _session_generator()
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
