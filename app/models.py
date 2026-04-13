@@ -1,6 +1,6 @@
 from sqlmodel import Field, SQLModel, Relationship
 from typing import Optional
-from pydantic import EmailStr   #insert at top of the file
+from pydantic import EmailStr
 
 class Token(SQLModel):
     access_token: str
@@ -21,7 +21,12 @@ class User(SQLModel, table=False):
     username: str = Field(index=True, unique=True)
     email: str = Field(index=True, unique=True)
     password: str
-    role:str = ""
+    role: str = ""
+    
+    def set_password(self, plaintext_password: str):
+        """Set the user's password using encryption"""
+        from app.auth import encrypt_password
+        self.password = encrypt_password(plaintext_password)
 
 class Admin(User, table=True):
     role:str = "admin"
