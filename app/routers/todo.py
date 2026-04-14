@@ -1,21 +1,19 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from sqlmodel import select
 from app.database import SessionDep
 from app.models import *
-from app.auth import encrypt_password, verify_password, create_access_token, AuthDep
-from fastapi.security import OAuth2PasswordRequestForm
-from typing import Annotated
+from app.auth import AuthDep  # Only import AuthDep
 from fastapi import status
 
 todo_router = APIRouter(tags=["Todo Management"])
 
-
 @todo_router.get('/todos', response_model=list[TodoResponse])
-def get_todos(db:SessionDep, user:AuthDep):
+def get_todos(db: SessionDep, user: AuthDep):
+    print(f"User authenticated: {user.username}")  # Debug
     return user.todos
 
 @todo_router.get('/todo/{id}', response_model=TodoResponse)
-def get_todo_by_id(id:int, db:SessionDep, user:AuthDep):
+def get_todo_by_id(id: int, db: SessionDep, user: AuthDep):
     todo = db.exec(select(Todo).where(Todo.id==id, Todo.user_id==user.id)).one_or_none()
     if not todo:
         raise HTTPException(
@@ -26,7 +24,7 @@ def get_todo_by_id(id:int, db:SessionDep, user:AuthDep):
     return todo
 
 @todo_router.post('/todos', response_model=TodoResponse)
-def create_todo(db:SessionDep, user:AuthDep, todo_data:TodoCreate):
+def create_todo(db: SessionDep, user: AuthDep, todo_data: TodoCreate):
     todo = Todo(text=todo_data.text, user_id=user.id)
     try:
         db.add(todo)
@@ -40,7 +38,7 @@ def create_todo(db:SessionDep, user:AuthDep, todo_data:TodoCreate):
         )
 
 @todo_router.put('/todo/{id}', response_model=TodoResponse)
-def update_todo(id:int, db:SessionDep, user:AuthDep, todo_data:TodoUpdate):
+def update_todo(id: int, db: SessionDep, user: AuthDep, todo_data: TodoUpdate):
     todo = db.exec(select(Todo).where(Todo.id==id, Todo.user_id==user.id)).one_or_none()
     if not todo:
         raise HTTPException(
@@ -49,7 +47,7 @@ def update_todo(id:int, db:SessionDep, user:AuthDep, todo_data:TodoUpdate):
         )
     if todo_data.text:
         todo.text = todo_data.text
-    if todo_data.done:
+    if todo_data.done is not None:
         todo.done = todo_data.done
     try:
         db.add(todo)
@@ -62,8 +60,7 @@ def update_todo(id:int, db:SessionDep, user:AuthDep, todo_data:TodoUpdate):
         )
 
 @todo_router.delete('/todo/{id}', status_code=status.HTTP_200_OK)
-def update_todo(id:int, db:SessionDep, user:AuthDep):
-
+def delete_todo(id: int, db: SessionDep, user: AuthDep):
     todo = db.exec(select(Todo).where(Todo.id==id, Todo.user_id==user.id)).one_or_none()
     if not todo:
         raise HTTPException(
@@ -73,6 +70,7 @@ def update_todo(id:int, db:SessionDep, user:AuthDep):
     try:
         db.delete(todo)
         db.commit()
+        return {"message": "Todo deleted"}
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
