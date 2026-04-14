@@ -58,20 +58,41 @@ async def login_for_access_token(
 @auth_router.post('/signup', response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def signup_user(user_data: UserCreate, db: SessionDep):
     try:
+        existing = db.exec(
+            select(RegularUser).where(
+                (RegularUser.username == user_data.username) | 
+                (RegularUser.email == user_data.email)
+            )
+        ).first()
+
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail="Username or email already exists"
+            )
+
         new_user = RegularUser(
             username=user_data.username, 
             email=user_data.email, 
-            password=encrypt_password(user_data.password)
+            password=encrypt_password(user_data.password),
+            role="regular_user"
         )
+        
         db.add(new_user)
         db.commit()
+        db.refresh(new_user)
+        
         return new_user
-    except Exception:
+        
+    except HTTPException:
         db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"Signup error: {e}")
         raise HTTPException(
             status_code=400,
-            detail="Username or email already exists",
-            headers={"WWW-Authenticate": "Bearer"},
+            detail="Failed to create user. Please try again."
         )
 
 @auth_router.get("/identify", response_model=UserResponse)
